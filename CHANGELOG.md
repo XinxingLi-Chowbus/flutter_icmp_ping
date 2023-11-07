@@ -1,3 +1,6 @@
+## 3.1.4
+- fix GBPing occasional crash
+
 ## 3.1.3
 - fix GBPing occasional crash under multi-threading.
 - fix to work on android.
