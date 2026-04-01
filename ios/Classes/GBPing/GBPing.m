@@ -374,25 +374,40 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
 }
 
 -(void)listenLoop {
-    @autoreleasepool {
-        while (self.isPinging) {
+    while (self.isPinging) {
+        @autoreleasepool {
             [self listenOnce];
         }
     }
 }
 
+-(void)handleListenFailureWithErrorCode:(int)err {
+    @synchronized(self) {
+        if (!self.isStopped) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (self.delegate && [self.delegate respondsToSelector:@selector(ping:didFailWithError:)] ) {
+                    [self.delegate ping:self didFailWithError:[NSError errorWithDomain:NSPOSIXErrorDomain code:err userInfo:nil]];
+                }
+            });
+        }
+    }
+    
+    [self stop];
+}
+
 -(void)listenOnce {
-    int                     err;
+    int                     err = 0;
     struct sockaddr_storage addr;
     socklen_t               addrLen;
     ssize_t                 bytesRead;
-    void *                  buffer;
+    void *                  buffer = NULL;
     enum { kBufferSize = 65535 };
     
     buffer = malloc(kBufferSize);
 
     if (buffer == nil) {
-        err = errno;
+        err = errno ? errno : ENOMEM;
+        [self handleListenFailureWithErrorCode:err];
         return;
     }
     
@@ -417,7 +432,9 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
             packet = [NSMutableData dataWithBytes:buffer length:(NSUInteger) bytesRead];
 
             if (packet == nil) {
-                err = errno;
+                err = errno ? errno : ENOMEM;
+                free(buffer);
+                [self handleListenFailureWithErrorCode:err];
                 return;
             }
 
@@ -483,19 +500,9 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
         if (err == 0) {
             err = EPIPE;
         }
-        
-        @synchronized(self) {
-            if (!self.isStopped) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (self.delegate && [self.delegate respondsToSelector:@selector(ping:didFailWithError:)] ) {
-                        [self.delegate ping:self didFailWithError:[NSError errorWithDomain:NSPOSIXErrorDomain code:err userInfo:nil]];
-                    }
-                });
-            }
-        }
-        
-        //stop the whole thing
-        [self stop];
+        free(buffer);
+        [self handleListenFailureWithErrorCode:err];
+        return;
     }
     
     free(buffer);
@@ -522,7 +529,7 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
             while (runUntil > time) {
                 NSDate *runUntilDate = [NSDate dateWithTimeIntervalSinceReferenceDate:runUntil];
                 [[NSRunLoop currentRunLoop] runUntilDate:runUntilDate];
-        
+
                 time = CFAbsoluteTimeGetCurrent();
             }
             if (stopping) {
