@@ -1,3 +1,6 @@
+## 3.1.4
+- Optimize logic to avoid possible busy-waiting logic
+
 ## 3.1.3
 - fix GBPing occasional crash under multi-threading.
 - fix to work on android.
